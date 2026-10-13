@@ -7,37 +7,36 @@ const message = document.querySelector('#message');
 const projectList = document.querySelector('#project-list');
 const emptyState = document.querySelector('#empty-state');
 
-const STORAGE_KEY = 'workshop-projects-v1';
-
 let projects = [];
 let editingId = null;
 
-// Load projects from localStorage safely
-try {
-  const storedData = localStorage.getItem(STORAGE_KEY);
-  if (storedData !== null) {
-    const parsed = JSON.parse(storedData);
-    if (Array.isArray(parsed)) {
-      projects = parsed;
-    } else {
-      if (message) {
-        message.textContent = 'Warning: Stored data was invalid. Starting with an empty list.';
-      }
-    }
-  }
-} catch (error) {
+// Helper to display status or error messages
+function showMessage(text, isError = false) {
   if (message) {
-    message.textContent = 'Error: Could not read saved projects from storage.';
+    message.textContent = text;
+    message.style.color = isError ? '#d9534f' : '#222';
   }
 }
 
-function saveToStorage() {
+// Load projects from the Express/SQLite API
+async function loadProjects() {
+  showMessage('Loading projects...');
+  if (emptyState) emptyState.style.display = 'none';
+
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
-  } catch (error) {
-    if (message) {
-      message.textContent = 'Error: Could not save changes to storage.';
+    const response = await fetch('/api/projects');
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP error! status: ${response.status}`);
     }
+    projects = await response.json();
+    showMessage('');
+    render();
+  } catch (error) {
+    console.error('Failed to load projects:', error);
+    showMessage(`Error: Could not load projects from server. (${error.message})`, true);
+    // A failed initial load is not an empty-list success
+    if (emptyState) emptyState.style.display = 'none';
   }
 }
 
@@ -76,7 +75,7 @@ function render() {
       statusInput.value = project.status;
       if (saveButton) saveButton.textContent = 'Save changes';
       if (cancelButton) cancelButton.style.display = 'inline-block';
-      if (message) message.textContent = `Editing project: ${project.name}`;
+      showMessage(`Editing project: ${project.name}`);
     });
 
     // Delete button
@@ -84,19 +83,34 @@ function render() {
     deleteButton.type = 'button';
     deleteButton.textContent = 'Delete';
     deleteButton.style.marginLeft = '5px';
-    deleteButton.addEventListener('click', () => {
+    deleteButton.addEventListener('click', async () => {
       const confirmed = confirm(`Are you sure you want to delete "${project.name}"?`);
       if (!confirmed) {
-        return;
+        return; // Preserves cancelled deletion without sending a mutation request
       }
 
-      if (editingId === project.id) {
-        resetForm();
-      }
+      showMessage('Deleting project...');
+      try {
+        const response = await fetch(`/api/projects/${project.id}`, {
+          method: 'DELETE'
+        });
 
-      projects = projects.filter(p => p.id !== project.id);
-      saveToStorage();
-      render();
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+        }
+
+        // Reset edit mode if the record being edited was deleted
+        if (editingId === project.id) {
+          resetForm();
+        }
+
+        showMessage('Project deleted successfully.');
+        await loadProjects();
+      } catch (error) {
+        console.error('Failed to delete project:', error);
+        showMessage(`Error: Could not delete project. (${error.message})`, true);
+      }
     });
 
     li.appendChild(nameSpan);
@@ -112,18 +126,19 @@ function resetForm() {
   form.reset();
   if (saveButton) saveButton.textContent = 'Add project';
   if (cancelButton) cancelButton.style.display = 'none';
-  if (message) message.textContent = '';
+  showMessage('');
 }
 
 if (cancelButton) {
   cancelButton.style.display = 'none';
   cancelButton.addEventListener('click', () => {
     resetForm();
-    if (message) message.textContent = 'Edit cancelled.';
+    showMessage('Edit cancelled.');
   });
 }
 
-form.addEventListener('submit', event => {
+// Single intended form submit listener handling both Create and Edit
+form.addEventListener('submit', async event => {
   event.preventDefault();
 
   const name = nameInput.value.trim();
@@ -133,28 +148,49 @@ form.addEventListener('submit', event => {
     return;
   }
 
-  if (editingId) {
-    projects = projects.map(p => {
-      if (p.id === editingId) {
-        return { ...p, name, status };
-      }
-      return p;
-    });
-    if (message) message.textContent = 'Project updated successfully.';
-  } else {
-    const newProject = {
-      id: Date.now().toString(),
-      name: name,
-      status: status
-    };
-    projects.push(newProject);
-    if (message) message.textContent = 'Project added successfully.';
-  }
+  try {
+    if (editingId) {
+      showMessage('Saving changes...');
+      const response = await fetch(`/api/projects/${editingId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name, status })
+      });
 
-  saveToStorage();
-  resetForm();
-  render();
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      showMessage('Project updated successfully.');
+    } else {
+      showMessage('Saving new project...');
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name, status })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      showMessage('Project added successfully.');
+    }
+
+    resetForm();
+    await loadProjects();
+  } catch (error) {
+    console.error('Mutation failed:', error);
+    showMessage(`Error: Operation failed. (${error.message})`, true);
+    // Do not report success or reset unsaved input when the mutation fails
+  }
 });
 
-// Initial render on load
-render();
+// Initial load on application start
+loadProjects();
