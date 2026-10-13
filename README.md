@@ -1,27 +1,33 @@
-# Student Project Tracker - Setup smoke test
+# Student Project Tracker
 
-Workshop learning checkpoint. Local demo; no login or multi-user isolation.
+A hands-on web app development workshop project. It adds, displays, edits and deletes engineering projects, with data stored in local SQLite.
 
-## Run
-Use Node.js 22.23.3 (tested baseline) and a PowerShell terminal in this folder.
+## Run locally
+Use the workshop Node 22 baseline (at least 22.18, below 23), Git and VS Code.
+Open a PowerShell terminal inside the project, then run:
 
-```powershell
-npm.cmd install
-npm.cmd start
-```
+    npm.cmd ci
+    npm.cmd start
 
-Open http://localhost:3000. Keep the server terminal running. Stop with Ctrl+C.
-The pinned versions and lockfile are supplied in the released kit. After the first install, use `npm.cmd ci` when restoring dependencies.
+Open http://localhost:3000. Stop the server with Ctrl+C.
 
-## Files
-`public/index.html`: structure; `public/style.css`: presentation; `public/script.js`: browser behaviour.
-`server.js`: local startup. When present, `app.js`: HTTP API; `database.js`: persistence.
+## How it works
+Browser HTML/CSS/JavaScript -> fetch/HTTP -> Express API -> SQLite -> JSON response -> updated page.
+- public/index.html: page structure and form.
+- public/style.css: appearance and responsive layout.
+- public/script.js: input, API requests, rendering and feedback.
+- server.js: starts the local server.
+- app.js: routes, validation and responses.
+- database.js: SQLite operations; creates data/projects.db locally.
 
-## Evidence
-Explain the current storage location and what survives browser refresh and server restart.
-For the final checkpoint, run `npm.cmd test` to verify CRUD, validation and persistence.
-Local browser data is not automatically migrated to SQLite. Recreate test records after switching.
+## API
+GET /api/health; GET and POST /api/projects; PUT and DELETE /api/projects/:id.
 
-## GitHub
-Commit source code and package-lock.json. Exclude node_modules, data and credentials.
-Describe your own project and add evidence of testing to this README before the final push.
+## Verification
+Record only checks actually performed: 
+- Successfully performed CRUD operations (Added, Edited, and Deleted projects via the UI).
+- Verified server restart flow and local connectivity on http://localhost:3000.
+- Tested failure and retry behavior (unsaved input preserved on failed save when server was stopped, followed by a successful retry once restarted).
+
+## Workshop limitations
+This local teaching app has no sign-in or per-user permissions. Browsers calling the same server share its collection. The SQLite data file and node_modules are not uploaded to GitHub. Cloud hosting requires separate server and database configuration.
