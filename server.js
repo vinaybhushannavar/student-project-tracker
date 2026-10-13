@@ -1,20 +1,26 @@
 import express from 'express';
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '10kb' }));
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Ensure the 'data' directory exists
-if (!fs.existsSync('data')) {
-  fs.mkdirSync('data');
+// Ensure the 'data' directory exists relative to the script path
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 
-// Initialize SQLite database
-const db = new DatabaseSync('data/projects.db');
+// Initialize SQLite database using node:sqlite
+const db = new DatabaseSync(path.join(dataDir, 'projects.db'));
 
 // Create the projects table if it doesn't exist
 db.exec(`
@@ -38,8 +44,13 @@ app.get('/api/health', (req, res) => {
 
 // GET /api/projects - Retrieve all projects from SQLite
 app.get('/api/projects', (req, res) => {
-  const projects = db.prepare('SELECT id, name, status FROM projects').all();
-  res.json(projects);
+  try {
+    const projects = db.prepare('SELECT id, name, status FROM projects').all();
+    res.json(projects);
+  } catch (err) {
+    console.error('GET Error:', err);
+    res.status(500).json({ error: 'Failed to retrieve projects', details: err.message });
+  }
 });
 
 // POST /api/projects - Create a new project in SQLite
@@ -50,16 +61,21 @@ app.post('/api/projects', (req, res) => {
     return res.status(400).json({ error: 'Name and status are required' });
   }
 
-  const insert = db.prepare('INSERT INTO projects (name, status) VALUES (?, ?)');
-  const result = insert.run(name.trim(), status);
+  try {
+    const insert = db.prepare('INSERT INTO projects (name, status) VALUES (?, ?)');
+    const result = insert.run(name.trim(), status);
 
-  const newProject = {
-    id: Number(result.lastInsertRowid),
-    name: name.trim(),
-    status: status
-  };
+    const newProject = {
+      id: Number(result.lastInsertRowid),
+      name: name.trim(),
+      status: status
+    };
 
-  res.status(201).json(newProject);
+    res.status(201).json(newProject);
+  } catch (err) {
+    console.error('POST Error:', err);
+    res.status(500).json({ error: 'Failed to create project', details: err.message });
+  }
 });
 
 // PUT /api/projects/:id - Update an existing project in SQLite
@@ -71,27 +87,37 @@ app.put('/api/projects/:id', (req, res) => {
     return res.status(400).json({ error: 'Name and status are required' });
   }
 
-  const update = db.prepare('UPDATE projects SET name = ?, status = ? WHERE id = ?');
-  const result = update.run(name.trim(), status, id);
+  try {
+    const update = db.prepare('UPDATE projects SET name = ?, status = ? WHERE id = ?');
+    const result = update.run(name.trim(), status, id);
 
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Project not found' });
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    res.json({ id: Number(id), name: name.trim(), status });
+  } catch (err) {
+    console.error('PUT Error:', err);
+    res.status(500).json({ error: 'Failed to update project', details: err.message });
   }
-
-  res.json({ id: Number(id), name: name.trim(), status });
 });
 
 // DELETE /api/projects/:id - Delete a project from SQLite
 app.delete('/api/projects/:id', (req, res) => {
   const { id } = req.params;
-  const remove = db.prepare('DELETE FROM projects WHERE id = ?');
-  const result = remove.run(id);
+  try {
+    const remove = db.prepare('DELETE FROM projects WHERE id = ?');
+    const result = remove.run(id);
 
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Project not found' });
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    res.json({ success: true, id: Number(id) });
+  } catch (err) {
+    console.error('DELETE Error:', err);
+    res.status(500).json({ error: 'Failed to delete project', details: err.message });
   }
-
-  res.json({ success: true, id: Number(id) });
 });
 
 app.listen(PORT, () => {
